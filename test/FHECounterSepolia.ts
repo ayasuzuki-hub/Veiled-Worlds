@@ -1,6 +1,6 @@
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { ethers, fhevm, deployments } from "hardhat";
-import { FHECounter } from "../types";
+import { VeiledWorlds } from "../types";
 import { expect } from "chai";
 import { FhevmType } from "@fhevm/hardhat-plugin";
 
@@ -8,10 +8,10 @@ type Signers = {
   alice: HardhatEthersSigner;
 };
 
-describe("FHECounterSepolia", function () {
+describe("VeiledWorldsSepolia", function () {
   let signers: Signers;
-  let fheCounterContract: FHECounter;
-  let fheCounterContractAddress: string;
+  let veiledWorldsContract: VeiledWorlds;
+  let veiledWorldsContractAddress: string;
   let step: number;
   let steps: number;
 
@@ -26,9 +26,9 @@ describe("FHECounterSepolia", function () {
     }
 
     try {
-      const FHECounterDeployement = await deployments.get("FHECounter");
-      fheCounterContractAddress = FHECounterDeployement.address;
-      fheCounterContract = await ethers.getContractAt("FHECounter", FHECounterDeployement.address);
+      const veiledWorldsDeployment = await deployments.get("VeiledWorlds");
+      veiledWorldsContractAddress = veiledWorldsDeployment.address;
+      veiledWorldsContract = await ethers.getContractAt("VeiledWorlds", veiledWorldsDeployment.address);
     } catch (e) {
       (e as Error).message += ". Call 'npx hardhat deploy --network sepolia'";
       throw e;
@@ -43,62 +43,37 @@ describe("FHECounterSepolia", function () {
     steps = 0;
   });
 
-  it("increment the counter by 1", async function () {
-    steps = 10;
+  it("joins and decrypts position", async function () {
+    steps = 8;
 
     this.timeout(4 * 40000);
 
-    progress("Encrypting '0'...");
-    const encryptedZero = await fhevm
-      .createEncryptedInput(fheCounterContractAddress, signers.alice.address)
-      .add32(0)
-      .encrypt();
-
-    progress(
-      `Call increment(0) FHECounter=${fheCounterContractAddress} handle=${ethers.hexlify(encryptedZero.handles[0])} signer=${signers.alice.address}...`,
-    );
-    let tx = await fheCounterContract
-      .connect(signers.alice)
-      .increment(encryptedZero.handles[0], encryptedZero.inputProof);
+    progress(`Call VeiledWorlds.join()...`);
+    let tx = await veiledWorldsContract.connect(signers.alice).join();
     await tx.wait();
 
-    progress(`Call FHECounter.getCount()...`);
-    const encryptedCountBeforeInc = await fheCounterContract.getCount();
-    expect(encryptedCountBeforeInc).to.not.eq(ethers.ZeroHash);
+    progress(`Call VeiledWorlds.getPlayerPosition()...`);
+    const [encryptedX, encryptedY] = await veiledWorldsContract.getPlayerPosition(signers.alice.address);
+    expect(encryptedX).to.not.eq(ethers.ZeroHash);
 
-    progress(`Decrypting FHECounter.getCount()=${encryptedCountBeforeInc}...`);
-    const clearCountBeforeInc = await fhevm.userDecryptEuint(
-      FhevmType.euint32,
-      encryptedCountBeforeInc,
-      fheCounterContractAddress,
+    progress(`Decrypting position...`);
+    const clearX = await fhevm.userDecryptEuint(
+      FhevmType.euint8,
+      encryptedX,
+      veiledWorldsContractAddress,
       signers.alice,
     );
-    progress(`Clear FHECounter.getCount()=${clearCountBeforeInc}`);
-
-    progress(`Encrypting '1'...`);
-    const encryptedOne = await fhevm
-      .createEncryptedInput(fheCounterContractAddress, signers.alice.address)
-      .add32(1)
-      .encrypt();
-
-    progress(
-      `Call increment(1) FHECounter=${fheCounterContractAddress} handle=${ethers.hexlify(encryptedOne.handles[0])} signer=${signers.alice.address}...`,
-    );
-    tx = await fheCounterContract.connect(signers.alice).increment(encryptedOne.handles[0], encryptedOne.inputProof);
-    await tx.wait();
-
-    progress(`Call FHECounter.getCount()...`);
-    const encryptedCountAfterInc = await fheCounterContract.getCount();
-
-    progress(`Decrypting FHECounter.getCount()=${encryptedCountAfterInc}...`);
-    const clearCountAfterInc = await fhevm.userDecryptEuint(
-      FhevmType.euint32,
-      encryptedCountAfterInc,
-      fheCounterContractAddress,
+    const clearY = await fhevm.userDecryptEuint(
+      FhevmType.euint8,
+      encryptedY,
+      veiledWorldsContractAddress,
       signers.alice,
     );
-    progress(`Clear FHECounter.getCount()=${clearCountAfterInc}`);
+    progress(`Clear position: (${clearX}, ${clearY})`);
 
-    expect(clearCountAfterInc - clearCountBeforeInc).to.eq(1);
+    expect(clearX).to.be.gte(1);
+    expect(clearX).to.be.lte(10);
+    expect(clearY).to.be.gte(1);
+    expect(clearY).to.be.lte(10);
   });
 });
