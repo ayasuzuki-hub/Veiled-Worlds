@@ -1,0 +1,53 @@
+.header {
+  padding: 2.5rem 6vw 1.5rem;
+  color: #0f172a;
+}
+
+.header-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.header-brand {
+  max-width: 520px;
+}
+
+.header-eyebrow {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.3em;
+  color: #475569;
+}
+
+.header-title {
+  font-family: 'Unbounded', sans-serif;
+  font-size: clamp(2.2rem, 5vw, 3.2rem);
+  margin: 0.4rem 0;
+  color: #0b1324;
+}
+
+.header-subtitle {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 1.05rem;
+  color: #475569;
+  margin: 0;
+}
+
+.header-actions {
+  align-self: flex-start;
+}
+
+@media (min-width: 900px) {
+  .header-inner {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .header-actions {
+    align-self: center;
+  }
+}
