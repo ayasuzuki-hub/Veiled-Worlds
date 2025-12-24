@@ -3,182 +3,162 @@ import { task } from "hardhat/config";
 import type { TaskArguments } from "hardhat/types";
 
 /**
- * Tutorial: Deploy and Interact Locally (--network localhost)
- * ===========================================================
- *
- * 1. From a separate terminal window:
- *
- *   npx hardhat node
- *
- * 2. Deploy the FHECounter contract
- *
- *   npx hardhat --network localhost deploy
- *
- * 3. Interact with the FHECounter contract
- *
- *   npx hardhat --network localhost task:decrypt-count
- *   npx hardhat --network localhost task:increment --value 2
- *   npx hardhat --network localhost task:decrement --value 1
- *   npx hardhat --network localhost task:decrypt-count
- *
- *
- * Tutorial: Deploy and Interact on Sepolia (--network sepolia)
- * ===========================================================
- *
- * 1. Deploy the FHECounter contract
- *
- *   npx hardhat --network sepolia deploy
- *
- * 2. Interact with the FHECounter contract
- *
- *   npx hardhat --network sepolia task:decrypt-count
- *   npx hardhat --network sepolia task:increment --value 2
- *   npx hardhat --network sepolia task:decrement --value 1
- *   npx hardhat --network sepolia task:decrypt-count
- *
- */
-
-/**
  * Example:
  *   - npx hardhat --network localhost task:address
  *   - npx hardhat --network sepolia task:address
  */
-task("task:address", "Prints the FHECounter address").setAction(async function (_taskArguments: TaskArguments, hre) {
+task("task:address", "Prints the VeiledWorlds address").setAction(async function (_taskArguments: TaskArguments, hre) {
   const { deployments } = hre;
 
-  const fheCounter = await deployments.get("FHECounter");
+  const veiledWorlds = await deployments.get("VeiledWorlds");
 
-  console.log("FHECounter address is " + fheCounter.address);
+  console.log("VeiledWorlds address is " + veiledWorlds.address);
 });
 
 /**
  * Example:
- *   - npx hardhat --network localhost task:decrypt-count
- *   - npx hardhat --network sepolia task:decrypt-count
+ *   - npx hardhat --network localhost task:join
+ *   - npx hardhat --network sepolia task:join
  */
-task("task:decrypt-count", "Calls the getCount() function of Counter Contract")
-  .addOptionalParam("address", "Optionally specify the Counter contract address")
+task("task:join", "Calls join() on the VeiledWorlds contract")
+  .addOptionalParam("address", "Optionally specify the VeiledWorlds contract address")
+  .setAction(async function (taskArguments: TaskArguments, hre) {
+    const { ethers, deployments } = hre;
+
+    const veiledWorldsDeployment = taskArguments.address
+      ? { address: taskArguments.address }
+      : await deployments.get("VeiledWorlds");
+    console.log(`VeiledWorlds: ${veiledWorldsDeployment.address}`);
+
+    const signers = await ethers.getSigners();
+    const veiledWorldsContract = await ethers.getContractAt("VeiledWorlds", veiledWorldsDeployment.address);
+
+    const tx = await veiledWorldsContract.connect(signers[0]).join();
+    console.log(`Wait for tx:${tx.hash}...`);
+    const receipt = await tx.wait();
+    console.log(`tx:${tx.hash} status=${receipt?.status}`);
+  });
+
+/**
+ * Example:
+ *   - npx hardhat --network localhost task:decrypt-position
+ *   - npx hardhat --network sepolia task:decrypt-position
+ */
+task("task:decrypt-position", "Decrypts the player position")
+  .addOptionalParam("address", "Optionally specify the VeiledWorlds contract address")
+  .addOptionalParam("player", "Optionally specify the player address")
   .setAction(async function (taskArguments: TaskArguments, hre) {
     const { ethers, deployments, fhevm } = hre;
 
     await fhevm.initializeCLIApi();
 
-    const FHECounterDeployement = taskArguments.address
+    const veiledWorldsDeployment = taskArguments.address
       ? { address: taskArguments.address }
-      : await deployments.get("FHECounter");
-    console.log(`FHECounter: ${FHECounterDeployement.address}`);
+      : await deployments.get("VeiledWorlds");
+    console.log(`VeiledWorlds: ${veiledWorldsDeployment.address}`);
 
     const signers = await ethers.getSigners();
+    const playerAddress = taskArguments.player ?? signers[0].address;
 
-    const fheCounterContract = await ethers.getContractAt("FHECounter", FHECounterDeployement.address);
+    const veiledWorldsContract = await ethers.getContractAt("VeiledWorlds", veiledWorldsDeployment.address);
+    const [encryptedX, encryptedY] = await veiledWorldsContract.getPlayerPosition(playerAddress);
 
-    const encryptedCount = await fheCounterContract.getCount();
-    if (encryptedCount === ethers.ZeroHash) {
-      console.log(`encrypted count: ${encryptedCount}`);
-      console.log("clear count    : 0");
-      return;
-    }
-
-    const clearCount = await fhevm.userDecryptEuint(
-      FhevmType.euint32,
-      encryptedCount,
-      FHECounterDeployement.address,
+    const clearX = await fhevm.userDecryptEuint(
+      FhevmType.euint8,
+      encryptedX,
+      veiledWorldsDeployment.address,
       signers[0],
     );
-    console.log(`Encrypted count: ${encryptedCount}`);
-    console.log(`Clear count    : ${clearCount}`);
+    const clearY = await fhevm.userDecryptEuint(
+      FhevmType.euint8,
+      encryptedY,
+      veiledWorldsDeployment.address,
+      signers[0],
+    );
+
+    console.log(`Encrypted position: ${encryptedX}, ${encryptedY}`);
+    console.log(`Clear position    : (${clearX}, ${clearY})`);
   });
 
 /**
  * Example:
- *   - npx hardhat --network localhost task:increment --value 1
- *   - npx hardhat --network sepolia task:increment --value 1
+ *   - npx hardhat --network localhost task:build --x 4 --y 7
+ *   - npx hardhat --network sepolia task:build --x 4 --y 7
  */
-task("task:increment", "Calls the increment() function of FHECounter Contract")
-  .addOptionalParam("address", "Optionally specify the FHECounter contract address")
-  .addParam("value", "The increment value")
+task("task:build", "Builds a structure with encrypted coordinates")
+  .addOptionalParam("address", "Optionally specify the VeiledWorlds contract address")
+  .addParam("x", "The x coordinate (1-10)")
+  .addParam("y", "The y coordinate (1-10)")
   .setAction(async function (taskArguments: TaskArguments, hre) {
     const { ethers, deployments, fhevm } = hre;
 
-    const value = parseInt(taskArguments.value);
-    if (!Number.isInteger(value)) {
-      throw new Error(`Argument --value is not an integer`);
+    const x = parseInt(taskArguments.x);
+    const y = parseInt(taskArguments.y);
+    if (!Number.isInteger(x) || !Number.isInteger(y)) {
+      throw new Error(`Arguments --x and --y must be integers`);
     }
 
     await fhevm.initializeCLIApi();
 
-    const FHECounterDeployement = taskArguments.address
+    const veiledWorldsDeployment = taskArguments.address
       ? { address: taskArguments.address }
-      : await deployments.get("FHECounter");
-    console.log(`FHECounter: ${FHECounterDeployement.address}`);
+      : await deployments.get("VeiledWorlds");
+    console.log(`VeiledWorlds: ${veiledWorldsDeployment.address}`);
 
     const signers = await ethers.getSigners();
+    const veiledWorldsContract = await ethers.getContractAt("VeiledWorlds", veiledWorldsDeployment.address);
 
-    const fheCounterContract = await ethers.getContractAt("FHECounter", FHECounterDeployement.address);
-
-    // Encrypt the value passed as argument
-    const encryptedValue = await fhevm
-      .createEncryptedInput(FHECounterDeployement.address, signers[0].address)
-      .add32(value)
+    const encryptedInput = await fhevm
+      .createEncryptedInput(veiledWorldsDeployment.address, signers[0].address)
+      .add8(x)
+      .add8(y)
       .encrypt();
 
-    const tx = await fheCounterContract
+    const tx = await veiledWorldsContract
       .connect(signers[0])
-      .increment(encryptedValue.handles[0], encryptedValue.inputProof);
+      .build(encryptedInput.handles[0], encryptedInput.handles[1], encryptedInput.inputProof);
     console.log(`Wait for tx:${tx.hash}...`);
-
     const receipt = await tx.wait();
     console.log(`tx:${tx.hash} status=${receipt?.status}`);
-
-    const newEncryptedCount = await fheCounterContract.getCount();
-    console.log("Encrypted count after increment:", newEncryptedCount);
-
-    console.log(`FHECounter increment(${value}) succeeded!`);
   });
 
 /**
  * Example:
- *   - npx hardhat --network localhost task:decrement --value 1
- *   - npx hardhat --network sepolia task:decrement --value 1
+ *   - npx hardhat --network localhost task:decrypt-building
+ *   - npx hardhat --network sepolia task:decrypt-building
  */
-task("task:decrement", "Calls the decrement() function of FHECounter Contract")
-  .addOptionalParam("address", "Optionally specify the FHECounter contract address")
-  .addParam("value", "The decrement value")
+task("task:decrypt-building", "Decrypts the player building position")
+  .addOptionalParam("address", "Optionally specify the VeiledWorlds contract address")
+  .addOptionalParam("player", "Optionally specify the player address")
   .setAction(async function (taskArguments: TaskArguments, hre) {
     const { ethers, deployments, fhevm } = hre;
 
-    const value = parseInt(taskArguments.value);
-    if (!Number.isInteger(value)) {
-      throw new Error(`Argument --value is not an integer`);
-    }
-
     await fhevm.initializeCLIApi();
 
-    const FHECounterDeployement = taskArguments.address
+    const veiledWorldsDeployment = taskArguments.address
       ? { address: taskArguments.address }
-      : await deployments.get("FHECounter");
-    console.log(`FHECounter: ${FHECounterDeployement.address}`);
+      : await deployments.get("VeiledWorlds");
+    console.log(`VeiledWorlds: ${veiledWorldsDeployment.address}`);
 
     const signers = await ethers.getSigners();
+    const playerAddress = taskArguments.player ?? signers[0].address;
 
-    const fheCounterContract = await ethers.getContractAt("FHECounter", FHECounterDeployement.address);
+    const veiledWorldsContract = await ethers.getContractAt("VeiledWorlds", veiledWorldsDeployment.address);
+    const [encryptedX, encryptedY] = await veiledWorldsContract.getBuildingPosition(playerAddress);
 
-    // Encrypt the value passed as argument
-    const encryptedValue = await fhevm
-      .createEncryptedInput(FHECounterDeployement.address, signers[0].address)
-      .add32(value)
-      .encrypt();
+    const clearX = await fhevm.userDecryptEuint(
+      FhevmType.euint8,
+      encryptedX,
+      veiledWorldsDeployment.address,
+      signers[0],
+    );
+    const clearY = await fhevm.userDecryptEuint(
+      FhevmType.euint8,
+      encryptedY,
+      veiledWorldsDeployment.address,
+      signers[0],
+    );
 
-    const tx = await fheCounterContract
-      .connect(signers[0])
-      .decrement(encryptedValue.handles[0], encryptedValue.inputProof);
-    console.log(`Wait for tx:${tx.hash}...`);
-
-    const receipt = await tx.wait();
-    console.log(`tx:${tx.hash} status=${receipt?.status}`);
-
-    const newEncryptedCount = await fheCounterContract.getCount();
-    console.log("Encrypted count after decrement:", newEncryptedCount);
-
-    console.log(`FHECounter decrement(${value}) succeeded!`);
+    console.log(`Encrypted building: ${encryptedX}, ${encryptedY}`);
+    console.log(`Clear building    : (${clearX}, ${clearY})`);
   });
