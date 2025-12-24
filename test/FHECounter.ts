@@ -1,6 +1,6 @@
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { ethers, fhevm } from "hardhat";
-import { FHECounter, FHECounter__factory } from "../types";
+import { VeiledWorlds, VeiledWorlds__factory } from "../types";
 import { expect } from "chai";
 import { FhevmType } from "@fhevm/hardhat-plugin";
 
@@ -11,17 +11,17 @@ type Signers = {
 };
 
 async function deployFixture() {
-  const factory = (await ethers.getContractFactory("FHECounter")) as FHECounter__factory;
-  const fheCounterContract = (await factory.deploy()) as FHECounter;
-  const fheCounterContractAddress = await fheCounterContract.getAddress();
+  const factory = (await ethers.getContractFactory("VeiledWorlds")) as VeiledWorlds__factory;
+  const veiledWorldsContract = (await factory.deploy()) as VeiledWorlds;
+  const veiledWorldsContractAddress = await veiledWorldsContract.getAddress();
 
-  return { fheCounterContract, fheCounterContractAddress };
+  return { veiledWorldsContract, veiledWorldsContractAddress };
 }
 
-describe("FHECounter", function () {
+describe("VeiledWorlds", function () {
   let signers: Signers;
-  let fheCounterContract: FHECounter;
-  let fheCounterContractAddress: string;
+  let veiledWorldsContract: VeiledWorlds;
+  let veiledWorldsContractAddress: string;
 
   before(async function () {
     const ethSigners: HardhatEthersSigner[] = await ethers.getSigners();
@@ -35,70 +35,74 @@ describe("FHECounter", function () {
       this.skip();
     }
 
-    ({ fheCounterContract, fheCounterContractAddress } = await deployFixture());
+    ({ veiledWorldsContract, veiledWorldsContractAddress } = await deployFixture());
   });
 
-  it("encrypted count should be uninitialized after deployment", async function () {
-    const encryptedCount = await fheCounterContract.getCount();
-    // Expect initial count to be bytes32(0) after deployment,
-    // (meaning the encrypted count value is uninitialized)
-    expect(encryptedCount).to.eq(ethers.ZeroHash);
-  });
-
-  it("increment the counter by 1", async function () {
-    const encryptedCountBeforeInc = await fheCounterContract.getCount();
-    expect(encryptedCountBeforeInc).to.eq(ethers.ZeroHash);
-    const clearCountBeforeInc = 0;
-
-    // Encrypt constant 1 as a euint32
-    const clearOne = 1;
-    const encryptedOne = await fhevm
-      .createEncryptedInput(fheCounterContractAddress, signers.alice.address)
-      .add32(clearOne)
-      .encrypt();
-
-    const tx = await fheCounterContract
-      .connect(signers.alice)
-      .increment(encryptedOne.handles[0], encryptedOne.inputProof);
+  it("assigns a random position on join", async function () {
+    const tx = await veiledWorldsContract.connect(signers.alice).join();
     await tx.wait();
 
-    const encryptedCountAfterInc = await fheCounterContract.getCount();
-    const clearCountAfterInc = await fhevm.userDecryptEuint(
-      FhevmType.euint32,
-      encryptedCountAfterInc,
-      fheCounterContractAddress,
+    const [encryptedX, encryptedY] = await veiledWorldsContract.getPlayerPosition(signers.alice.address);
+
+    const clearX = await fhevm.userDecryptEuint(
+      FhevmType.euint8,
+      encryptedX,
+      veiledWorldsContractAddress,
+      signers.alice,
+    );
+    const clearY = await fhevm.userDecryptEuint(
+      FhevmType.euint8,
+      encryptedY,
+      veiledWorldsContractAddress,
       signers.alice,
     );
 
-    expect(clearCountAfterInc).to.eq(clearCountBeforeInc + clearOne);
+    expect(clearX).to.be.gte(1);
+    expect(clearX).to.be.lte(10);
+    expect(clearY).to.be.gte(1);
+    expect(clearY).to.be.lte(10);
+    expect(await veiledWorldsContract.hasJoined(signers.alice.address)).to.eq(true);
   });
 
-  it("decrement the counter by 1", async function () {
-    // Encrypt constant 1 as a euint32
-    const clearOne = 1;
-    const encryptedOne = await fhevm
-      .createEncryptedInput(fheCounterContractAddress, signers.alice.address)
-      .add32(clearOne)
+  it("rejects double join", async function () {
+    let tx = await veiledWorldsContract.connect(signers.alice).join();
+    await tx.wait();
+
+    await expect(veiledWorldsContract.connect(signers.alice).join()).to.be.revertedWith("Player already joined");
+  });
+
+  it("builds a structure with clamped coordinates", async function () {
+    let tx = await veiledWorldsContract.connect(signers.alice).join();
+    await tx.wait();
+
+    const encryptedInput = await fhevm
+      .createEncryptedInput(veiledWorldsContractAddress, signers.alice.address)
+      .add8(12)
+      .add8(0)
       .encrypt();
 
-    // First increment by 1, count becomes 1
-    let tx = await fheCounterContract
+    tx = await veiledWorldsContract
       .connect(signers.alice)
-      .increment(encryptedOne.handles[0], encryptedOne.inputProof);
+      .build(encryptedInput.handles[0], encryptedInput.handles[1], encryptedInput.inputProof);
     await tx.wait();
 
-    // Then decrement by 1, count goes back to 0
-    tx = await fheCounterContract.connect(signers.alice).decrement(encryptedOne.handles[0], encryptedOne.inputProof);
-    await tx.wait();
+    const [encryptedX, encryptedY] = await veiledWorldsContract.getBuildingPosition(signers.alice.address);
 
-    const encryptedCountAfterDec = await fheCounterContract.getCount();
-    const clearCountAfterInc = await fhevm.userDecryptEuint(
-      FhevmType.euint32,
-      encryptedCountAfterDec,
-      fheCounterContractAddress,
+    const clearX = await fhevm.userDecryptEuint(
+      FhevmType.euint8,
+      encryptedX,
+      veiledWorldsContractAddress,
+      signers.alice,
+    );
+    const clearY = await fhevm.userDecryptEuint(
+      FhevmType.euint8,
+      encryptedY,
+      veiledWorldsContractAddress,
       signers.alice,
     );
 
-    expect(clearCountAfterInc).to.eq(0);
+    expect(clearX).to.eq(3);
+    expect(clearY).to.eq(1);
+    expect(await veiledWorldsContract.hasBuilding(signers.alice.address)).to.eq(true);
   });
 });
